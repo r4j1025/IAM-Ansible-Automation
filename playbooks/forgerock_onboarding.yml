@@ -1,0 +1,42 @@
+---
+- name: ForgeRock OIDC Onboarding
+  hosts: localhost
+  connection: local
+  gather_facts: false
+ 
+  tasks:
+ 
+    - name: Create ForgeRock session token
+      command:
+        argv:
+          - python3
+          - "{{ playbook_dir }}/../forgerock/create_token.py"
+          - "{{ servicenow_payload.fr_admin_username }}"
+          - "{{ servicenow_payload.fr_admin_password }}"
+      register: token_result
+ 
+    - name: Parse token response
+      set_fact:
+        token_json: "{{ token_result.stdout | from_json }}"
+ 
+    - name: Create OAuth client
+      command:
+        argv:
+          - python3
+          - "{{ playbook_dir }}/../forgerock/create_client.py"
+          - "{{ token_json.token }}"
+          - "{{ servicenow_payload | to_json }}"
+      register: client_result
+ 
+    - name: Parse client response
+      set_fact:
+        client_json: "{{ client_result.stdout | from_json }}"
+ 
+    - name: Publish output to AAP artifacts
+      set_stats:
+        data:
+          status: "{{ client_json.status }}"
+          platform: ForgeRock
+          client_name: "{{ client_json.client_name }}"
+          redirect_uri: "{{ client_json.redirect_uri }}"
+          ritm_number: "{{ servicenow_payload.ritm_number }}"
