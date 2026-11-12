@@ -150,7 +150,11 @@ response = requests.put(
     timeout=30
 )
  
-response.raise_for_status()
+if response.status_code >= 400:
+    print("HTTP_STATUS:", response.status_code)
+    print("RESPONSE_BODY:")
+    print(response.text)
+    sys.exit(1)
  
 print(
     json.dumps({
