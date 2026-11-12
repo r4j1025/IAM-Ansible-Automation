@@ -121,7 +121,7 @@ request_body = {
     }
 }
 request_body["coreOAuth2ClientConfig"]["descriptions"] = [
-    f"APPCODE={application_code},SAID=said"
+    f"APPCODE={application_code}","SAID=said"
 ]
  
 #
