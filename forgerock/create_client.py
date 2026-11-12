@@ -105,8 +105,7 @@ request_body = {
         "scopes": scopes,
         "defaultScopes": [
             "openid"
-        ],
-        "description": description
+        ]
     },
  
     "advancedOAuth2ClientConfig": {
