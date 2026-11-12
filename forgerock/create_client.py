@@ -124,10 +124,10 @@ request_body = {
 #
 # Custom Properties
 #
-if custom_properties:
-    request_body[
-        "advancedOAuth2ClientConfig"
-    ]["customProperties"] = custom_properties
+# if custom_properties:
+#     request_body[
+#         "advancedOAuth2ClientConfig"
+#     ]["customProperties"] = custom_properties
  
 headers = {
     "iPlanetDirectoryPro": token,
