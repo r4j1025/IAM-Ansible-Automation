@@ -18,18 +18,17 @@
     entra_client_secret: ""
 
   tasks:
+    
     - name: Validate required inputs
       ansible.builtin.assert:
         that:
           - entra_tenant_id | string | length > 0
-          - entra_client_id | string | length > 0
-          - entra_client_secret | string | length > 0
+          - servicenow_payload.entra_client_id | default('') | length > 0
+          - servicenow_payload.entra_client_secret | default('') | length > 0
           - servicenow_payload is mapping
-          - servicenow_payload | length > 0
           - (servicenow_payload.application_environment | default([]) | length) > 0
-        fail_msg: >-
-          Provide protected Entra Graph credentials and a non-empty
-          servicenow_payload with at least one application_environment entry.
+        fail_msg: "Missing required Entra credentials or ServiceNow payload."
+
 
     - name: Validate first application environment exists
       ansible.builtin.assert:
@@ -46,6 +45,7 @@
           - "Application environment: {{ servicenow_payload.application_environment[0].app_environment | default('') }}"
           - "Platform environment mapping: {{ servicenow_payload.application_environment[0].platform_environmental_mapping | default('') }}"
 
+    
     - name: Generate Microsoft Graph access token
       ansible.builtin.command:
         argv:
@@ -53,11 +53,13 @@
           - "{{ scripts_dir }}/get_access_token.py"
       environment:
         TENANT_ID: "{{ entra_tenant_id }}"
-        CLIENT_ID: "{{ entra_client_id }}"
-        CLIENT_SECRET: "{{ entra_client_secret }}"
+        CLIENT_ID: "{{ servicenow_payload.entra_client_id }}"
+        CLIENT_SECRET: "{{ servicenow_payload.entra_client_secret }}"
       register: token_result
       changed_when: false
       no_log: true
+
+      
 
     - name: Store access token for subsequent tasks
       ansible.builtin.set_fact:
