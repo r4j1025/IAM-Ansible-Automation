@@ -1,0 +1,169 @@
+---
+- name: Entra OIDC application configuration from ServiceNow
+  hosts: localhost
+  connection: local
+  gather_facts: false
+
+  vars:
+    # Repository layout: IAM-Automation/entra and IAM-Automation/playbooks
+    scripts_dir: "{{ playbook_dir }}/../entra"
+
+    # ServiceNow sends this exact extra_vars key.
+    servicenow_payload: {}
+
+    # Define these as protected AAP credential inputs / job-template variables.
+    # Do not pass the Graph client secret in ordinary ServiceNow extra_vars.
+    entra_tenant_id: ""
+    entra_client_id: ""
+    entra_client_secret: ""
+
+  tasks:
+    - name: Validate required inputs
+      ansible.builtin.assert:
+        that:
+          - entra_tenant_id | string | length > 0
+          - entra_client_id | string | length > 0
+          - entra_client_secret | string | length > 0
+          - servicenow_payload is mapping
+          - servicenow_payload | length > 0
+          - (servicenow_payload.application_environment | default([]) | length) > 0
+        fail_msg: >-
+          Provide protected Entra Graph credentials and a non-empty
+          servicenow_payload with at least one application_environment entry.
+
+    - name: Validate first application environment exists
+      ansible.builtin.assert:
+        that:
+          - servicenow_payload.application_environment[0] is mapping
+        fail_msg: >-
+          servicenow_payload.application_environment must contain a valid
+          first environment object at index 0.
+
+    - name: Show first environment mapping (non-secret values only)
+      ansible.builtin.debug:
+        msg:
+          - "Selected environment index: 0"
+          - "Application environment: {{ servicenow_payload.application_environment[0].app_environment | default('') }}"
+          - "Platform environment mapping: {{ servicenow_payload.application_environment[0].platform_environmental_mapping | default('') }}"
+
+    - name: Generate Microsoft Graph access token
+      ansible.builtin.command:
+        argv:
+          - python3
+          - "{{ scripts_dir }}/get_access_token.py"
+      environment:
+        TENANT_ID: "{{ entra_tenant_id }}"
+        CLIENT_ID: "{{ entra_client_id }}"
+        CLIENT_SECRET: "{{ entra_client_secret }}"
+      register: token_result
+      changed_when: false
+      no_log: true
+
+    - name: Store access token for subsequent tasks
+      ansible.builtin.set_fact:
+        graph_access_token: "{{ (token_result.stdout | from_json).access_token }}"
+      no_log: true
+
+    - name: Resolve SPN to App Registration and Enterprise Application
+      ansible.builtin.command:
+        argv:
+          - python3
+          - "{{ scripts_dir }}/resolve_spn.py"
+      environment:
+        ACCESS_TOKEN: "{{ graph_access_token }}"
+        TRIGGER_PAYLOAD: "{{ servicenow_payload | to_json }}"
+      register: spn_result
+      changed_when: false
+
+    - name: Store resolved Entra application identifiers
+      ansible.builtin.set_fact:
+        entra_resolution: "{{ spn_result.stdout | from_json }}"
+        application_object_id: "{{ (spn_result.stdout | from_json).APPLICATION_OBJECT_ID }}"
+        application_client_id: "{{ (spn_result.stdout | from_json).APPLICATION_CLIENT_ID }}"
+        application_display_name: "{{ (spn_result.stdout | from_json).APPLICATION_DISPLAY_NAME }}"
+        enterprise_obj_id: "{{ (spn_result.stdout | from_json).ENTERPRISE_OBJ_ID }}"
+        app_detected: "{{ (spn_result.stdout | from_json).APP_DETECTED }}"
+        app_match_count: "{{ (spn_result.stdout | from_json).APP_MATCH_COUNT }}"
+        application_matches: "{{ (spn_result.stdout | from_json).APPLICATION_MATCHES }}"
+
+    - name: Validate exactly one App Registration and Enterprise Application were resolved
+      ansible.builtin.assert:
+        that:
+          - app_detected == 'true'
+          - app_match_count | int == 1
+          - application_object_id | length > 0
+          - application_client_id | length > 0
+          - enterprise_obj_id | length > 0
+        fail_msg: >-
+          SPN resolution did not identify exactly one complete Entra target.
+          APP_DETECTED={{ app_detected }}, APP_MATCH_COUNT={{ app_match_count }}.
+          Check the SPN and APPLICATION_MATCHES before retrying.
+
+    - name: Display resolved application summary
+      ansible.builtin.debug:
+        msg:
+          - "Application detected: {{ app_detected }}"
+          - "Match count: {{ app_match_count }}"
+          - "Application display name: {{ application_display_name }}"
+          - "Application client ID: {{ application_client_id }}"
+          - "Application object ID: {{ application_object_id }}"
+          - "Enterprise application object ID: {{ enterprise_obj_id }}"
+
+    - name: Configure Redirect and Logout URI
+      ansible.builtin.command:
+        argv:
+          - python3
+          - "{{ scripts_dir }}/configure_redirect_logout.py"
+      environment:
+        ACCESS_TOKEN: "{{ graph_access_token }}"
+        APPLICATION_OBJECT_ID: "{{ application_object_id }}"
+        TRIGGER_PAYLOAD: "{{ servicenow_payload | to_json }}"
+      register: redirect_result
+      changed_when: true
+
+    - name: Configure Optional Claims
+      ansible.builtin.command:
+        argv:
+          - python3
+          - "{{ scripts_dir }}/configure_optional_claims.py"
+      environment:
+        ACCESS_TOKEN: "{{ graph_access_token }}"
+        APPLICATION_OBJECT_ID: "{{ application_object_id }}"
+        TRIGGER_PAYLOAD: "{{ servicenow_payload | to_json }}"
+      register: optional_claims_result
+      changed_when: true
+
+    - name: Configure API Permissions
+      ansible.builtin.command:
+        argv:
+          - python3
+          - "{{ scripts_dir }}/configure_api_permissions.py"
+      environment:
+        ACCESS_TOKEN: "{{ graph_access_token }}"
+        APPLICATION_OBJECT_ID: "{{ application_object_id }}"
+        TRIGGER_PAYLOAD: "{{ servicenow_payload | to_json }}"
+      register: api_permissions_result
+      changed_when: true
+
+    - name: Assign Groups to Enterprise Application
+      ansible.builtin.command:
+        argv:
+          - python3
+          - "{{ scripts_dir }}/assign_groups.py"
+      environment:
+        ACCESS_TOKEN: "{{ graph_access_token }}"
+        ENTERPRISE_OBJ_ID: "{{ enterprise_obj_id }}"
+        TRIGGER_PAYLOAD: "{{ servicenow_payload | to_json }}"
+      register: group_assignment_result
+      changed_when: true
+
+    - name: Display onboarding configuration summary
+      ansible.builtin.debug:
+        msg:
+          - "Entra application: {{ application_display_name }}"
+          - "Application object ID: {{ application_object_id }}"
+          - "Enterprise application object ID: {{ enterprise_obj_id }}"
+          - "Redirect/logout configuration: completed or skipped"
+          - "Optional claims: completed or skipped"
+          - "API permissions: completed"
+          - "Group assignment: completed or skipped"
