@@ -86,14 +86,15 @@
     - name: Validate exactly one App Registration and Enterprise Application were resolved
       ansible.builtin.assert:
         that:
-          - app_detected == 'true'
+          - app_detected | string | lower == 'true'
           - app_match_count | int == 1
           - application_object_id | length > 0
           - application_client_id | length > 0
           - enterprise_obj_id | length > 0
         fail_msg: >-
           SPN resolution did not identify exactly one complete Entra target.
-          APP_DETECTED={{ app_detected }}, APP_MATCH_COUNT={{ app_match_count }}.
+          APP_DETECTED={{ app_detected }},
+          APP_MATCH_COUNT={{ app_match_count }}.
           Check the SPN and APPLICATION_MATCHES before retrying.
 
     - name: Display resolved application summary
