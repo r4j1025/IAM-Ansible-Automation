@@ -11,18 +11,13 @@
     # ServiceNow sends this exact extra_vars key.
     servicenow_payload: {}
 
-    # Define these as protected AAP credential inputs / job-template variables.
-    # Do not pass the Graph client secret in ordinary ServiceNow extra_vars.
-    entra_tenant_id: ""
-    entra_client_id: ""
-    entra_client_secret: ""
 
   tasks:
     
     - name: Validate required inputs
       ansible.builtin.assert:
         that:
-          - entra_tenant_id | string | length > 0
+          - servicenow_payload.entra_tenant_id | default('') | length > 0
           - servicenow_payload.entra_client_id | default('') | length > 0
           - servicenow_payload.entra_client_secret | default('') | length > 0
           - servicenow_payload is mapping
@@ -52,7 +47,7 @@
           - python3
           - "{{ scripts_dir }}/get_access_token.py"
       environment:
-        TENANT_ID: "{{ entra_tenant_id }}"
+        TENANT_ID: "{{ servicenow_payload.entra_tenant_id }}"
         CLIENT_ID: "{{ servicenow_payload.entra_client_id }}"
         CLIENT_SECRET: "{{ servicenow_payload.entra_client_secret }}"
       register: token_result
